@@ -1,0 +1,14 @@
+
+lex.yy.c
+parser.tab.c
+parser.tab.h
+parser.output
+
+
+minic
+out
+out.c
+ast.json
+
+
+*.o

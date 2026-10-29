@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<title>MiniC — візуалізація AST</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#fafaf7; --fg:#222; --edge:#b9b9b0; --panel:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1c1c1e; --fg:#eee; --edge:#555; --panel:#2a2a2d; } }
+  body { margin:0; font:14px system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:10px 14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--panel); border-bottom:1px solid var(--edge); }
+  header b { font-size:15px; }
+  button, input[type=file]::file-selector-button { padding:5px 10px; border:1px solid var(--edge); background:var(--bg); color:var(--fg); border-radius:6px; cursor:pointer; }
+  #legend span { display:inline-block; margin-right:10px; }
+  #legend i { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+  svg { width:100vw; height:calc(100vh - 52px); display:block; cursor:grab; }
+  .link { fill:none; stroke:var(--edge); stroke-width:1.4px; }
+  .node text { font-size:12px; fill:var(--fg); paint-order:stroke; stroke:var(--bg); stroke-width:3px; }
+  .node circle { stroke:var(--fg); stroke-width:1px; cursor:pointer; }
+  .node.collapsed circle { stroke-width:3px; }
+</style>
+</head>
+<body>
+<header>
+  <b>MiniC · AST</b>
+  <input type="file" id="file" accept=".json">
+  <button id="expand">Розгорнути все</button>
+  <button id="collapse">Згорнути до рівня 2</button>
+  <span id="legend"></span>
+  <span style="opacity:.6">клік по вузлу — згорнути/розгорнути; колесо — масштаб</span>
+</header>
+<svg id="svg"></svg>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script>
+const COLORS = {Program:"#7f77dd", Func:"#7f77dd", Param:"#888780", Block:"#888780",
+  Decl:"#1d9e75", Assign:"#1d9e75", If:"#d85a30", While:"#d85a30", For:"#d85a30",
+  Return:"#d4537e", Print:"#d4537e", ExprStmt:"#888780", BinOp:"#378add", UnOp:"#378add",
+  Num:"#ba7517", Var:"#639922", Call:"#d4537e"};
+const legend = document.getElementById("legend");
+["Func","Decl","If","BinOp","Num","Var","Call"].forEach(t => {
+  legend.insertAdjacentHTML("beforeend", `<span><i style="background:${COLORS[t]}"></i>${t}</span>`);
+});
+
+const svg = d3.select("#svg"), g = svg.append("g");
+svg.call(d3.zoom().scaleExtent([0.1, 4]).on("zoom", e => g.attr("transform", e.transform)));
+let root, uid = 0;
+const dx = 22, dy = 150;
+
+function draw(data) {
+  g.selectAll("*").remove();
+  root = d3.hierarchy(data);
+  root.each(d => d.id = ++uid);
+  collapseTo(root, 99);
+  update(root);
+  const w = svg.node().clientWidth;
+  svg.call(d3.zoom().transform, d3.zoomIdentity.translate(60, svg.node().clientHeight / 2).scale(1));
+}
+
+function collapseTo(node, level) {
+  node.each(d => {
+    if (d.depth >= level && d.children) { d._children = d.children; d.children = null; }
+    else if (d.depth < level && d._children) { d.children = d._children; d._children = null; }
+  });
+}
+
+function update(source) {
+  d3.tree().nodeSize([dx, dy])(root);
+  const nodes = root.descendants(), links = root.links();
+  const t = g.transition().duration(250);
+
+  g.selectAll(".link").data(links, d => d.target.id).join(
+    enter => enter.append("path").attr("class", "link"),
+    update => update, exit => exit.remove()
+  ).attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
+
+  const node = g.selectAll(".node").data(nodes, d => d.id).join(
+    enter => {
+      const n = enter.append("g").attr("class", "node").on("click", (e, d) => {
+        if (d.children) { d._children = d.children; d.children = null; }
+        else if (d._children) { d.children = d._children; d._children = null; }
+        update(d);
+      });
+      n.append("circle").attr("r", 6);
+      n.append("text").attr("dy", "0.32em");
+      n.append("title");
+      return n;
+    },
+    update => update, exit => exit.remove()
+  );
+  node.attr("class", d => "node" + (d._children ? " collapsed" : ""))
+      .attr("transform", d => `translate(${d.y},${d.x})`);
+  node.select("circle").attr("fill", d => COLORS[d.data.type] || "#999");
+  node.select("text").attr("x", d => d.children || d._children ? -10 : 10)
+      .attr("text-anchor", d => d.children || d._children ? "end" : "start")
+      .text(d => d.data.name);
+  node.select("title").text(d => `${d.data.type}, рядок ~${d.data.line}`);
+}
+
+document.getElementById("expand").onclick = () => { collapseTo(root, 99); update(root); };
+document.getElementById("collapse").onclick = () => { collapseTo(root, 2); update(root); };
+document.getElementById("file").onchange = async e => {
+  draw(JSON.parse(await e.target.files[0].text()));
+};
+
+fetch("ast.json").then(r => r.ok ? r.json() : null).then(d => d && draw(d)).catch(() => {});
+</script>
+</body>
+</html>
